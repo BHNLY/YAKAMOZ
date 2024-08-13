@@ -1,0 +1,102 @@
+import cv2
+import onnxruntime as ort
+import numpy as np
+
+# ONNX modeli yükleyin
+session = ort.InferenceSession('deneme.onnx')
+
+# Video kaynağını seçin
+video_path = 'video5.mp4'
+cap = cv2.VideoCapture(video_path)
+
+# Output video dosyasını ayarlayın
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+out = cv2.VideoWriter('output.mp4', fourcc, 30.0, (int(cap.get(3)), int(cap.get(4))))
+
+# Input ve output isimlerini alın
+input_name = session.get_inputs()[0].name
+output_name = session.get_outputs()[0].name
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Görüntünün boyutlarını al
+    h, w, _ = frame.shape
+
+    # Model giriş boyutlarını ayarla (640, 640)
+    input_size = 640
+
+    # Oranı koruyarak yeniden boyutlandırma
+    scale = min(input_size / w, input_size / h)
+    nw = int(w * scale)
+    nh = int(h * scale)
+
+    img = cv2.resize(frame, (nw, nh))
+    new_img = np.zeros((input_size, input_size, 3), np.uint8)
+    new_img[(input_size - nh) // 2:(input_size - nh) // 2 + nh,
+    (input_size - nw) // 2:(input_size - nw) // 2 + nw] = img
+    img = new_img
+
+    # Görüntüyü YOLOv5 modeline uygun formata dönüştürün
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img.transpose(2, 0, 1)
+    img = np.expand_dims(img, axis=0).astype(np.float32)
+    img /= 255.0  # Normalizasyon
+
+    # Model ile tahmin yapın
+    results = session.run([output_name], {input_name: img})[0]
+
+    # YOLOv5 için tahminler genellikle [x1, y1, x2, y2, conf, class] formatında gelir
+    for detection in results[0]:
+        if len(detection) == 6:  # Eğer tahmin 6 eleman içeriyorsa
+            x1, y1, x2, y2, conf, cls = detection
+        elif len(detection) == 5:  # Eğer tahmin 5 eleman içeriyorsa
+            x1, y1, x2, y2, conf = detection
+            cls = 0  # Varsayılan sınıf değeri
+        else:
+            continue
+
+        # Güven eşiği kontrolü
+        if isinstance(conf, np.ndarray):
+            if conf.size == 1:
+                conf = conf.item()  # Numpy dizisinden skaler değeri çıkarın
+            else:
+                continue  # conf beklenen formatta değilse devam etme
+
+        if conf > 0.5:  # Güven eşiği
+            # Orijinal boyutlara geri ölçekleme
+            x1 = int((x1 - (input_size - nw) // 2) / scale)
+            y1 = int((y1 - (input_size - nh) // 2) / scale)
+            x2 = int((x2 - (input_size - nw) // 2) / scale)
+            y2 = int((y2 - (input_size - nh) // 2) / scale)
+
+            label = f'{int(cls)} {conf:.2f}'
+
+            # Yazının boyutlarını al
+            (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)
+
+            # Arka plan kutusu oluştur
+            cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), (0, 255, 0), cv2.FILLED)
+
+            # Yazıyı yaz
+            cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+
+            # Kutuları çizme
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+    # Sonuçları göster
+    cv2.imshow('Result', frame)
+
+    # Çıkış için 'q' tuşuna basın
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+    # Sonuçları video dosyasına yazın
+    out.write(frame)
+
+# Temizlik
+cap.release()
+out.release()
+cv2.destroyAllWindows()
