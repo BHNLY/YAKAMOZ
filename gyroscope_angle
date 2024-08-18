@@ -1,0 +1,93 @@
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+
+class MatplotlibWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # Matplotlib figürü ve ekseni oluştur
+        self.figure, self.ax = plt.subplots()
+
+        # Düz çizginin uzunluğu
+        length = 12  # Çizginin sağa ve sola genişliği toplamıdır
+
+        # Pozitif ve negatif değerler
+        values = np.arange(-60, 61, 10)  # -60'tan +60'a kadar 10'ar artışlarla değerler
+        num_values = len(values)
+
+        # X ve Y koordinatlarını oluştur
+        x = np.linspace(-length / 2, length / 2, num_values)
+
+        # Parabol denklemi: y = a * x^2 + b
+        a = 0.05  # Parabolün eğimi
+        y = -a * x ** 2  # Ters yönde parabol için 'a' pozitif
+
+        # Parabolü oluştur
+        self.ax.plot(x, y, 'k-', lw=2)  # Düz çizgi yerine parabol
+
+        # Sayısal değerleri ekle ve dik çizgi ekle (çizgiden 5 piksel yukarıda)
+        for i in range(num_values):
+            # Negatif değerleri pozitif hale getir
+            display_value = abs(values[i])
+            self.ax.text(x[i], y[i] + 0.2, str(display_value), fontsize=12, ha='center', va='bottom', color='black')
+
+            # Dik çizgi ekle
+            self.ax.plot([x[i], x[i]], [y[i], y[i] + 0.15], 'k-', lw=2)  # Dik siyah çizgi ekle (boyu 3 piksel)
+
+        # Üçgeni oluştur
+        triangle_width = 1   # Üçgenin genişliği
+        triangle_height = 0.2  # Üçgenin yüksekliği
+
+        # Üçgenin X ve Y koordinatlarını hesapla
+        triangle_x = [-triangle_width / 3, 0, triangle_width / 3]  # Üçgenin X koordinatları
+        triangle_y = [-triangle_height, -0.03, -triangle_height]  # Üçgenin Y koordinatları
+
+        # Üçgeni çiz
+        self.ax.plot(triangle_x, triangle_y, 'g-', lw=1.5)  # Üçgeni kırmızı çizgi ile çiz
+
+        # Arka planı kaldır
+        self.ax.set_facecolor('white')  # Arka plan rengini beyaz yap
+        self.ax.patch.set_alpha(0)  # Şeffaflık ayarı
+        self.ax.grid(False)  # Grid'i kapat
+
+        # Ekseni kaldır
+        self.ax.spines['top'].set_visible(False)
+        self.ax.spines['right'].set_visible(False)
+        self.ax.spines['left'].set_visible(False)
+        self.ax.spines['bottom'].set_visible(False)
+
+        # Eksen etiketlerini ve numaralarını kaldır
+        self.ax.xaxis.set_ticks([])
+        self.ax.yaxis.set_ticks([])
+        self.ax.set_xticklabels([])
+        self.ax.set_yticklabels([])
+
+        # Görüntüyü ayarlayın
+        self.ax.set_aspect('equal')
+        self.ax.set_xlim(-length / 2 - 1, length / 2 + 1)
+        self.ax.set_ylim(min(y) - 2, 1)
+
+        # Matplotlib canvas'ını oluştur
+        self.canvas = FigureCanvas(self.figure)
+
+        # Yerleşim düzenini oluştur
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
+
+class main(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Matplotlib with PyQt5")
+        self.setGeometry(100, 100, 800, 600)
+        self.main_widget = MatplotlibWidget(self)
+        self.setCentralWidget(self.main_widget)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = main()
+    window.show()
+    sys.exit(app.exec_())
