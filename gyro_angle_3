@@ -1,0 +1,284 @@
+import sys
+import numpy as np
+from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtGui import QPainter, QColor, QFont, QPen, QPainterPath
+from PyQt5.QtCore import Qt, QTimer, QPointF
+from pymavlink import mavutil
+
+
+class HorizonIndicator(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.pitch = 0.0
+        self.roll = 0.0
+        self.yaw = 0.0
+        self.altitude = 0.0
+        self.battery_voltage = 0.0
+        self.battery_current = 0.0
+        self.battery_percent = 0.0
+        self.initUI()
+
+        # Start MAVLink connection
+        try:
+            self.master = mavutil.mavlink_connection("127.0.0.1:14550")
+        except Exception as e:
+            print(f'Error connecting to MAVLink: {e}')
+            self.master = None
+
+        # Set up a timer to fetch data at intervals
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_indicator)
+        self.timer.start(50)  # Fetch and update data every 50 ms
+
+    def initUI(self):
+        self.setGeometry(100, 100, 800, 600)
+        self.setWindowTitle('Horizon Indicator')
+        self.show()
+
+    def paintEvent(self, event):
+        qp = QPainter(self)
+        qp.setRenderHint(QPainter.Antialiasing)  # Enable anti-aliasing
+
+        # Draw the horizon
+        self.drawHorizon(qp)
+        # Display text information
+        self.drawText(qp)
+        # Draw a rectangle
+        self.drawRectangle(qp)
+        # Draw gyro lines
+        self.drawGyroLines(qp)
+        # Custom plot widget
+        self.drawCustomPlot(qp)
+        # Draw compass
+        self.drawCompass(qp)
+
+        qp.end()
+
+    def drawHorizon(self, qp):
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+
+        # Calculate the vertical offset based on the pitch
+        pitch_offset = (self.pitch / 90.0) * (self.height() / 2)
+
+        # Draw the sky
+        qp.save()
+        qp.setBrush(QColor(0, 102, 204))  # Blue color
+        qp.translate(0, int(-pitch_offset))  # Negative pitch offset
+        qp.drawRect(0, -self.height(), self.width(), center_y + self.height())  # Draw the sky
+        qp.restore()
+
+        # Draw the ground
+        qp.save()
+        qp.setBrush(QColor(255, 140, 45))  # Orange color
+        qp.translate(0, int(-pitch_offset))  # Negative pitch offset
+        qp.drawRect(0, center_y, self.width(), self.height() - center_y + self.height())  # Draw the ground
+        qp.restore()
+
+        # Draw pitch lines and labels
+        qp.save()
+        qp.translate(center_x, center_y)  # Translate to the center
+        qp.rotate(self.roll)  # Positive roll rotation
+
+        # Set line color to yellow
+        qp.setPen(QPen(QColor(255, 255, 0), 2, Qt.SolidLine))  # Yellow color
+
+        for p in range(-30, 31, 10):
+            if p == 0:
+                continue
+            y = int((p / 50.0) * (self.height() / 2) * 1.1)  # Adjusted line position
+            qp.drawLine(-55, -y, 55, -y)  # Extended line length
+            qp.drawText(60, -int(y + 5), str(p))  # Adjusted text position
+            qp.drawText(-85, -int(y + 5), str(p))  # Adjusted text position
+
+        qp.restore()
+
+    def drawText(self, qp):
+        qp.setPen(QColor(0, 0, 0))
+        qp.setFont(QFont('Arial', 15))
+
+        # Text information at the bottom
+        text_x = 10
+        text_y_start = self.height() - 120
+        line_height = 20
+
+        qp.drawText(text_x, text_y_start, f'Roll: {self.roll:.2f}')
+        qp.drawText(text_x, text_y_start + line_height, f'Pitch: {self.pitch:.2f}')
+        qp.drawText(text_x, text_y_start + 2 * line_height, f'Yaw: {self.yaw:.2f}')
+        qp.drawText(text_x, text_y_start + 3 * line_height, f'Altitude: {self.altitude:.2f}')
+
+        # Battery information at the top-right corner
+        text_x = self.width() - 200
+        text_y_start = 20
+
+        qp.drawText(text_x, text_y_start, f'Voltage: {self.battery_voltage:.2f} V')
+        qp.drawText(text_x, text_y_start + line_height, f'Current: {self.battery_current:.2f} A')
+        qp.drawText(text_x, text_y_start + 2 * line_height, f'Percent: {self.battery_percent:.2f} %')
+
+    def drawRectangle(self, qp):
+        # Rectangle position and dimensions
+        margin = 0.40  # 40% width from the center
+        margin_x = (1 - margin) / 2
+        rect_x = int(self.width() * margin_x)
+        rect_width = int(self.width() * margin)
+
+        margin_y = 0.05  # 5% offset from the top and bottom of the screen
+        rect_y = int(self.height() * margin_y)
+        rect_height = int(self.height() * (1 - 2 * margin_y))
+
+        # Corner radius 10% of the screen width
+        radius = int(self.width() * 0.10)
+
+        qp.setPen(QPen(QColor(255, 255, 255), 2, Qt.SolidLine))  # White color with 2 px thick border
+        qp.setBrush(QColor(0, 0, 0, 0))  # Transparent inner color
+
+        qp.drawRoundedRect(rect_x, rect_y, rect_width, rect_height, radius, radius)  # Draw rounded rectangle
+
+    def drawGyroLines(self, qp):
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+
+        line_length = 25
+        qp.setPen(QPen(QColor(0, 245, 0), 2, Qt.SolidLine))
+
+        qp.save()
+        qp.translate(center_x, center_y)
+        qp.rotate(-self.pitch)  # Correct pitch rotation
+        qp.translate(-center_x, -center_y)
+
+        qp.drawLine(center_x, center_y, center_x + line_length, center_y + line_length)
+        qp.drawLine(center_x, center_y, center_x - line_length, center_y + line_length)
+
+        qp.restore()
+
+    def drawCustomPlot(self, qp):
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+
+        length = 9
+        values = np.arange(-60, 61, 10)
+        num_values = len(values)
+        x = np.linspace(-length / 2, length / 2, num_values)
+
+        a = 0.05
+        b = 0.5
+        y = -a * x ** 2 + b
+
+        pen = QPen(QColor('black'))
+        pen.setWidth(2)
+        qp.setPen(pen)
+
+        path = QPainterPath()
+        start_point = self.mapToPainter(x[0], y[0])
+        path.moveTo(QPointF(start_point[0], start_point[1]))
+
+        for i in range(1, num_values):
+            x_pos, y_pos = self.mapToPainter(x[i], y[i])
+            path.lineTo(QPointF(x_pos, y_pos))
+
+        qp.drawPath(path)
+
+        font = QFont()
+        font.setPointSize(12)
+        font.setFamily('Arial')
+        qp.setFont(font)
+        qp.setPen(QColor('black'))
+
+        for i in range(num_values):
+            display_value = abs(values[i])
+            x_pos, y_pos = self.mapToPainter(x[i], y[i])
+
+            text_rect = qp.boundingRect(int(x_pos) - 10, int(y_pos) - 20, 20, 20, 0, str(display_value))
+            text_x = int(x_pos) - text_rect.width() // 2
+            text_y = int(y_pos) - text_rect.height() - 10
+
+            qp.drawText(text_x, text_y, str(display_value))
+            qp.drawLine(int(x_pos), int(y_pos), int(x_pos), int(y_pos - 15))
+
+        def get_parabola_value(degrees):
+            return -a * (degrees / 10) ** 2 + b
+
+        actual_angle = -self.roll  # Using the reverse of the roll angle
+        parabolic_value = get_parabola_value(actual_angle)
+
+        triangle_width = 0.3
+        triangle_height = 0.1
+        triangle_y_offset = -0.49
+
+        # Calculate the corner points of the triangle
+        triangle_points = [
+            self.mapToPainter(-triangle_width / 2, triangle_y_offset),
+            self.mapToPainter(triangle_width / 2, triangle_y_offset),
+            self.mapToPainter(0, triangle_y_offset + triangle_height)
+        ]
+
+        # Draw the triangle
+        triangle_path = QPainterPath()
+        triangle_path.moveTo(QPointF(triangle_points[0][0], triangle_points[0][1]))
+        triangle_path.lineTo(QPointF(triangle_points[1][0], triangle_points[1][1]))
+        triangle_path.lineTo(QPointF(triangle_points[2][0], triangle_points[2][1]))
+        triangle_path.closeSubpath()
+        qp.fillPath(triangle_path, QColor('black'))
+
+    def drawCompass(self, qp):
+        compass_radius = 100
+        compass_center = QPointF(self.width() - compass_radius - 20, self.height() - compass_radius - 20)
+
+        qp.setPen(QPen(Qt.black, 2))
+        qp.drawEllipse(compass_center, compass_radius, compass_radius)
+
+        for i in range(0, 360, 30):
+            angle_rad = np.deg2rad(i)
+            start_point = compass_center + QPointF(np.sin(angle_rad) * compass_radius, -np.cos(angle_rad) * compass_radius)
+            end_point = compass_center + QPointF(np.sin(angle_rad) * (compass_radius - 10), -np.cos(angle_rad) * (compass_radius - 10))
+
+            qp.drawLine(start_point, end_point)
+
+        compass_yaw = self.yaw
+
+        qp.setPen(QPen(Qt.red, 2))
+        yaw_angle_rad = np.deg2rad(compass_yaw)
+        needle_end_point = compass_center + QPointF(np.sin(yaw_angle_rad) * compass_radius, -np.cos(yaw_angle_rad) * compass_radius)
+
+        qp.drawLine(compass_center, needle_end_point)
+
+    def mapToPainter(self, x, y):
+        scale = 100
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+
+        x_pos = int(center_x + x * scale)
+        y_pos = int(center_y - y * scale)
+
+        return x_pos, y_pos
+
+    def update_indicator(self):
+        if self.master is None:
+            return
+
+        try:
+            msg = self.master.recv_match(blocking=False)
+
+            if not msg:
+                return
+
+            if msg.get_type() == 'ATTITUDE':
+                self.roll = np.degrees(msg.roll)
+                self.pitch = np.degrees(msg.pitch)
+                self.yaw = np.degrees(msg.yaw)
+            elif msg.get_type() == 'GLOBAL_POSITION_INT':
+                self.altitude = msg.relative_alt / 1000.0
+            elif msg.get_type() == 'SYS_STATUS':
+                self.battery_voltage = msg.voltage_battery / 1000.0
+                self.battery_current = msg.current_battery / 100.0
+                self.battery_percent = msg.battery_remaining
+            self.update()
+
+        except Exception as e:
+            print(f'Error receiving MAVLink message: {e}')
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    ex = HorizonIndicator()
+    sys.exit(app.exec_())
