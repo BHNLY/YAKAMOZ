@@ -23,7 +23,7 @@ while cap.isOpened():
     frame = results[0].plot()
 
     # Görüntüyü göster
-    cv2.imshow('YoloV8 Test', frame)
+    cv2.imshow('YoloV5 Test', frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
